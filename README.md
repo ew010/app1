@@ -53,5 +53,7 @@ adb connect <手机IP>:5555
 
 - `ci.yml`：`flutter analyze` + `flutter test`
 - `desktop_build.yml`：在 Linux/Windows/macOS 构建桌面应用，打包 `adb/scrcpy` 并上传 artifact
+- `android_build.yml`：构建 Android APK 并上传 artifact
 
 注意：GitHub Actions 只能做构建与测试，不能直接连接你的实体 Android 手机执行远程控制。
+注意：`adb + scrcpy` 控制能力依赖桌面宿主机，Android APK 仅用于应用分发/演示，不具备完整远程控制能力。

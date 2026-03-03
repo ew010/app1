@@ -70,6 +70,8 @@ class _ControllerPageState extends State<ControllerPage> {
   bool _busy = false;
   String _adbPath = 'adb';
   String _scrcpyPath = 'scrcpy';
+  bool get _supportsHostControl =>
+      Platform.isLinux || Platform.isMacOS || Platform.isWindows;
 
   @override
   void initState() {
@@ -171,6 +173,9 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _refreshDevices() async {
+    if (!_supportsHostControl) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final ProcessResult result = await _runProcess(_adbPath, <String>[
@@ -248,6 +253,10 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _connectOverTcp() async {
+    if (!_supportsHostControl) {
+      _addLog('ADB/scrcpy control is only supported on desktop builds.');
+      return;
+    }
     final String address = _connectAddressController.text.trim();
     if (address.isEmpty) {
       _addLog('Please enter device address, e.g. 192.168.1.100:5555');
@@ -273,6 +282,10 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _disconnectSelected() async {
+    if (!_supportsHostControl) {
+      _addLog('ADB/scrcpy control is only supported on desktop builds.');
+      return;
+    }
     if (_selectedSerial == null) {
       _addLog('Please select a device first.');
       return;
@@ -297,6 +310,10 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _startScrcpy() async {
+    if (!_supportsHostControl) {
+      _addLog('ADB/scrcpy control is only supported on desktop builds.');
+      return;
+    }
     if (_selectedSerial == null) {
       _addLog('Please select a device first.');
       return;
@@ -354,6 +371,10 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _sendKeyEvent(String keyCode) async {
+    if (!_supportsHostControl) {
+      _addLog('ADB/scrcpy control is only supported on desktop builds.');
+      return;
+    }
     if (_selectedSerial == null) {
       _addLog('Please select a device first.');
       return;
@@ -379,6 +400,10 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _sendText() async {
+    if (!_supportsHostControl) {
+      _addLog('ADB/scrcpy control is only supported on desktop builds.');
+      return;
+    }
     if (_selectedSerial == null) {
       _addLog('Please select a device first.');
       return;
@@ -418,6 +443,8 @@ class _ControllerPageState extends State<ControllerPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: <Widget>[
+            if (!_supportsHostControl) _buildPlatformWarning(),
+            if (!_supportsHostControl) const SizedBox(height: 12),
             _buildToolSection(),
             const SizedBox(height: 12),
             _buildDeviceSection(),
@@ -466,6 +493,19 @@ class _ControllerPageState extends State<ControllerPage> {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlatformWarning() {
+    return Card(
+      color: const Color(0xFFFFF4E5),
+      child: const Padding(
+        padding: EdgeInsets.all(12),
+        child: Text(
+          'This build is running on Android. adb/scrcpy remote control '
+          'requires a desktop host (macOS/Windows/Linux).',
         ),
       ),
     );
