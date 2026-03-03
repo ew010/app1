@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const AndroidControllerApp());
@@ -52,6 +53,13 @@ class _ControllerPageState extends State<ControllerPage> {
   final TextEditingController _connectAddressController =
       TextEditingController();
   final TextEditingController _textInputController = TextEditingController();
+  final TextEditingController _assistantIpController = TextEditingController();
+  final TextEditingController _assistantPairPortController =
+      TextEditingController(text: '37099');
+  final TextEditingController _assistantConnectPortController =
+      TextEditingController(text: '5555');
+  final TextEditingController _assistantPairCodeController =
+      TextEditingController();
 
   final List<String> _logs = <String>[];
 
@@ -84,6 +92,10 @@ class _ControllerPageState extends State<ControllerPage> {
 
     _connectAddressController.dispose();
     _textInputController.dispose();
+    _assistantIpController.dispose();
+    _assistantPairPortController.dispose();
+    _assistantConnectPortController.dispose();
+    _assistantPairCodeController.dispose();
     super.dispose();
   }
 
@@ -160,6 +172,46 @@ class _ControllerPageState extends State<ControllerPage> {
       return null;
     }
     return executable.parent.path;
+  }
+
+  Future<void> _copyCommand(String command, String label) async {
+    await Clipboard.setData(ClipboardData(text: command));
+    _addLog('Copied $label command.');
+  }
+
+  String get _assistantIp => _assistantIpController.text.trim();
+
+  String get _assistantPairPort {
+    final String port = _assistantPairPortController.text.trim();
+    return port.isEmpty ? '37099' : port;
+  }
+
+  String get _assistantConnectPort {
+    final String port = _assistantConnectPortController.text.trim();
+    return port.isEmpty ? '5555' : port;
+  }
+
+  String get _assistantPairCode => _assistantPairCodeController.text.trim();
+
+  String _assistantPairCommand() {
+    if (_assistantIp.isEmpty || _assistantPairCode.isEmpty) {
+      return 'Fill IP and Pair Code first';
+    }
+    return 'adb pair $_assistantIp:$_assistantPairPort $_assistantPairCode';
+  }
+
+  String _assistantConnectCommand() {
+    if (_assistantIp.isEmpty) {
+      return 'Fill IP first';
+    }
+    return 'adb connect $_assistantIp:$_assistantConnectPort';
+  }
+
+  String _assistantHomeCommand() {
+    if (_assistantIp.isEmpty) {
+      return 'Fill IP first';
+    }
+    return 'adb -s $_assistantIp:$_assistantConnectPort shell input keyevent KEYCODE_HOME';
   }
 
   Future<void> _refreshDevices() async {
@@ -412,17 +464,30 @@ class _ControllerPageState extends State<ControllerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isAndroidAssistant = Platform.isAndroid;
     return Scaffold(
-      appBar: AppBar(title: const Text('Android Controller (adb + scrcpy)')),
+      appBar: AppBar(
+        title: Text(
+          isAndroidAssistant
+              ? 'Android ADB Assistant'
+              : 'Android Controller (adb + scrcpy)',
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: <Widget>[
-            if (!_supportsHostControl) _buildPlatformWarning(),
-            if (!_supportsHostControl) const SizedBox(height: 12),
-            _buildDeviceSection(),
-            const SizedBox(height: 12),
-            _buildActionSection(),
+            if (isAndroidAssistant) ...<Widget>[
+              _buildAndroidAssistantIntro(),
+              const SizedBox(height: 12),
+              _buildAndroidAssistantForm(),
+              const SizedBox(height: 12),
+              _buildAndroidAssistantCommands(),
+            ] else ...<Widget>[
+              _buildDeviceSection(),
+              const SizedBox(height: 12),
+              _buildActionSection(),
+            ],
             const SizedBox(height: 12),
             _buildLogsSection(),
           ],
@@ -431,16 +496,114 @@ class _ControllerPageState extends State<ControllerPage> {
     );
   }
 
-  Widget _buildPlatformWarning() {
+  Widget _buildAndroidAssistantIntro() {
     return Card(
       color: const Color(0xFFFFF4E5),
       child: const Padding(
         padding: EdgeInsets.all(12),
         child: Text(
-          'This build is running on Android. adb/scrcpy remote control '
-          'requires a desktop host (macOS/Windows/Linux).',
+          'This Android build runs in ADB Assistant mode.\n'
+          'Use it to prepare wireless debugging commands.\n'
+          'Full screen control with scrcpy still requires a desktop host.',
         ),
       ),
+    );
+  }
+
+  Widget _buildAndroidAssistantForm() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: <Widget>[
+            TextField(
+              controller: _assistantIpController,
+              decoration: const InputDecoration(
+                labelText: 'Target Device IP (e.g. 192.168.1.88)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _assistantPairPortController,
+                    decoration: const InputDecoration(
+                      labelText: 'Pair Port',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    controller: _assistantConnectPortController,
+                    decoration: const InputDecoration(
+                      labelText: 'Connect Port',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _assistantPairCodeController,
+              decoration: const InputDecoration(
+                labelText: 'Pair Code',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAndroidAssistantCommands() {
+    final String pairCommand = _assistantPairCommand();
+    final String connectCommand = _assistantConnectCommand();
+    final String homeCommand = _assistantHomeCommand();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text(
+              'Generated Commands',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            _buildCommandRow('Pair', pairCommand),
+            const SizedBox(height: 8),
+            _buildCommandRow('Connect', connectCommand),
+            const SizedBox(height: 8),
+            _buildCommandRow('Send HOME', homeCommand),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCommandRow(String label, String command) {
+    final bool isValid = !command.startsWith('Fill ');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        SelectableText(
+          command,
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+        const SizedBox(height: 4),
+        FilledButton(
+          onPressed: isValid ? () => _copyCommand(command, label) : null,
+          child: Text('Copy $label Command'),
+        ),
+      ],
     );
   }
 

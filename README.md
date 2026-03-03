@@ -1,6 +1,8 @@
 # Android Remote Controller (Flutter + ADB + scrcpy)
 
-这个项目是一个 Flutter 桌面端应用（macOS / Windows / Linux），用于通过 `adb` 和 `scrcpy` 控制另一台 Android 手机。
+这个项目是一个 Flutter 多端应用：
+- 桌面端（macOS / Windows / Linux）：通过 `adb` + `scrcpy` 控制另一台 Android 手机。
+- Android 端（APK）：`ADB Assistant` 模式，用于生成和复制无线调试命令（`pair/connect` 等）。
 
 ## 功能
 
@@ -56,4 +58,4 @@ adb connect <手机IP>:5555
 - `android_build.yml`：构建 Android APK 并上传 artifact
 
 注意：GitHub Actions 只能做构建与测试，不能直接连接你的实体 Android 手机执行远程控制。
-注意：`adb + scrcpy` 控制能力依赖桌面宿主机，Android APK 仅用于应用分发/演示，不具备完整远程控制能力。
+注意：`adb + scrcpy` 全功能控制依赖桌面宿主机；Android APK 提供的是 ADB 助手能力（命令生成/复制），不是 scrcpy 镜像控制。
