@@ -6,12 +6,17 @@
 
 ## 功能
 
-- 刷新并显示 `adb devices -l` 设备列表
-- `adb connect <ip:port>` 连接局域网设备
-- 启动/停止 `scrcpy` 镜像控制窗口
-- 发送常用按键事件（Home、Back、Recent、Power、音量）
-- 发送文本输入（`adb shell input text`）
-- 内置日志面板，便于排错
+- 桌面端控制：
+  - 刷新并显示 `adb devices -l` 设备列表
+  - `adb connect <ip:port>` 连接局域网设备
+  - 启动/停止 `scrcpy` 镜像控制窗口
+  - 发送常用按键事件（Home、Back、Recent、Power、音量）
+  - 发送文本输入（`adb shell input text`）
+- Android 端（车机互联 V1）：
+  - 多设备档案管理（名称/IP/端口/配对码/包名）
+  - 一键生成并复制 `adb pair` / `adb connect` / 常用控制命令
+  - 一键复制全部命令，便于投送到终端或运维脚本
+  - 内置日志面板，便于排错
 
 ## 本地运行
 
@@ -58,4 +63,4 @@ adb connect <手机IP>:5555
 - `android_build.yml`：构建 Android APK 并上传 artifact
 
 注意：GitHub Actions 只能做构建与测试，不能直接连接你的实体 Android 手机执行远程控制。
-注意：`adb + scrcpy` 全功能控制依赖桌面宿主机；Android APK 提供的是 ADB 助手能力（命令生成/复制），不是 scrcpy 镜像控制。
+注意：`adb + scrcpy` 全功能控制依赖桌面宿主机；Android APK 当前实现为车机互联 V1（命令生成/复制 + 档案管理），不是 scrcpy 镜像控制。

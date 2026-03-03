@@ -4,6 +4,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const String _profilesPrefsKey = 'car_link_profiles_v1';
+const String _selectedProfilePrefsKey = 'car_link_selected_profile_v1';
 
 void main() {
   runApp(const AndroidControllerApp());
@@ -40,6 +44,84 @@ class AndroidDevice {
   bool get online => state == 'device';
 }
 
+class CarLinkProfile {
+  const CarLinkProfile({
+    required this.id,
+    required this.name,
+    required this.ip,
+    required this.pairPort,
+    required this.connectPort,
+    required this.pairCode,
+    required this.packageName,
+  });
+
+  final String id;
+  final String name;
+  final String ip;
+  final String pairPort;
+  final String connectPort;
+  final String pairCode;
+  final String packageName;
+
+  factory CarLinkProfile.initial() {
+    final String ts = DateTime.now().millisecondsSinceEpoch.toString();
+    return CarLinkProfile(
+      id: 'profile_$ts',
+      name: '我的手机',
+      ip: '',
+      pairPort: '37099',
+      connectPort: '5555',
+      pairCode: '',
+      packageName: 'com.android.settings',
+    );
+  }
+
+  factory CarLinkProfile.fromJson(String raw) {
+    final Map<String, dynamic> json = jsonDecode(raw) as Map<String, dynamic>;
+    return CarLinkProfile(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? '未命名设备',
+      ip: json['ip'] as String? ?? '',
+      pairPort: json['pair_port'] as String? ?? '37099',
+      connectPort: json['connect_port'] as String? ?? '5555',
+      pairCode: json['pair_code'] as String? ?? '',
+      packageName: json['package_name'] as String? ?? 'com.android.settings',
+    );
+  }
+
+  String toJson() {
+    return jsonEncode(<String, String>{
+      'id': id,
+      'name': name,
+      'ip': ip,
+      'pair_port': pairPort,
+      'connect_port': connectPort,
+      'pair_code': pairCode,
+      'package_name': packageName,
+    });
+  }
+
+  CarLinkProfile copyWith({
+    String? id,
+    String? name,
+    String? ip,
+    String? pairPort,
+    String? connectPort,
+    String? pairCode,
+    String? packageName,
+  }) {
+    return CarLinkProfile(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      ip: ip ?? this.ip,
+      pairPort: pairPort ?? this.pairPort,
+      connectPort: connectPort ?? this.connectPort,
+      pairCode: pairCode ?? this.pairCode,
+      packageName: packageName ?? this.packageName,
+    );
+  }
+}
+
 class ControllerPage extends StatefulWidget {
   const ControllerPage({super.key, this.autoRefresh = true});
 
@@ -53,6 +135,8 @@ class _ControllerPageState extends State<ControllerPage> {
   final TextEditingController _connectAddressController =
       TextEditingController();
   final TextEditingController _textInputController = TextEditingController();
+
+  final TextEditingController _profileNameController = TextEditingController();
   final TextEditingController _assistantIpController = TextEditingController();
   final TextEditingController _assistantPairPortController =
       TextEditingController(text: '37099');
@@ -60,6 +144,8 @@ class _ControllerPageState extends State<ControllerPage> {
       TextEditingController(text: '5555');
   final TextEditingController _assistantPairCodeController =
       TextEditingController();
+  final TextEditingController _assistantPackageController =
+      TextEditingController(text: 'com.android.settings');
 
   final List<String> _logs = <String>[];
 
@@ -69,17 +155,27 @@ class _ControllerPageState extends State<ControllerPage> {
   StreamSubscription<String>? _scrcpyStdoutSub;
   StreamSubscription<String>? _scrcpyStderrSub;
 
+  List<CarLinkProfile> _profiles = <CarLinkProfile>[];
+  String? _selectedProfileId;
+  bool _profilesReady = false;
+
   bool _busy = false;
   String _adbPath = 'adb';
   String _scrcpyPath = 'scrcpy';
+
   bool get _supportsHostControl =>
       Platform.isLinux || Platform.isMacOS || Platform.isWindows;
+
+  bool get _isAndroidAssistant => Platform.isAndroid;
 
   @override
   void initState() {
     super.initState();
     _initializeToolPaths();
-    if (widget.autoRefresh) {
+    if (_isAndroidAssistant) {
+      unawaited(_loadProfiles());
+    }
+    if (widget.autoRefresh && _supportsHostControl) {
       unawaited(_refreshDevices());
     }
   }
@@ -92,10 +188,14 @@ class _ControllerPageState extends State<ControllerPage> {
 
     _connectAddressController.dispose();
     _textInputController.dispose();
+
+    _profileNameController.dispose();
     _assistantIpController.dispose();
     _assistantPairPortController.dispose();
     _assistantConnectPortController.dispose();
     _assistantPairCodeController.dispose();
+    _assistantPackageController.dispose();
+
     super.dispose();
   }
 
@@ -107,6 +207,227 @@ class _ControllerPageState extends State<ControllerPage> {
         _logs.removeRange(0, _logs.length - 300);
       }
     });
+  }
+
+  Future<void> _loadProfiles() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final List<String> rawList =
+          prefs.getStringList(_profilesPrefsKey) ?? <String>[];
+      final List<CarLinkProfile> loaded = <CarLinkProfile>[];
+      for (final String raw in rawList) {
+        try {
+          loaded.add(CarLinkProfile.fromJson(raw));
+        } catch (_) {
+          // Ignore broken profile row.
+        }
+      }
+      if (loaded.isEmpty) {
+        loaded.add(CarLinkProfile.initial());
+      }
+
+      final String? selected = prefs.getString(_selectedProfilePrefsKey);
+      final String selectedId =
+          loaded.any((CarLinkProfile p) => p.id == selected)
+          ? selected!
+          : loaded.first.id;
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _profiles = loaded;
+        _selectedProfileId = selectedId;
+        _profilesReady = true;
+      });
+      _applyProfileToForm(_selectedProfile ?? loaded.first);
+      _addLog('已加载 ${loaded.length} 个设备档案');
+    } catch (error) {
+      _addLog('加载档案失败: $error');
+      if (mounted) {
+        setState(() => _profilesReady = true);
+      }
+    }
+  }
+
+  Future<void> _persistProfiles() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _profilesPrefsKey,
+      _profiles.map((CarLinkProfile p) => p.toJson()).toList(),
+    );
+    if (_selectedProfileId != null) {
+      await prefs.setString(_selectedProfilePrefsKey, _selectedProfileId!);
+    }
+  }
+
+  CarLinkProfile get _draftProfile {
+    final String id =
+        _selectedProfileId ??
+        'profile_${DateTime.now().millisecondsSinceEpoch}';
+    return CarLinkProfile(
+      id: id,
+      name: _profileNameController.text.trim(),
+      ip: _assistantIpController.text.trim(),
+      pairPort: _assistantPairPortController.text.trim().isEmpty
+          ? '37099'
+          : _assistantPairPortController.text.trim(),
+      connectPort: _assistantConnectPortController.text.trim().isEmpty
+          ? '5555'
+          : _assistantConnectPortController.text.trim(),
+      pairCode: _assistantPairCodeController.text.trim(),
+      packageName: _assistantPackageController.text.trim().isEmpty
+          ? 'com.android.settings'
+          : _assistantPackageController.text.trim(),
+    );
+  }
+
+  CarLinkProfile? get _selectedProfile {
+    if (_selectedProfileId == null) {
+      return null;
+    }
+    for (final CarLinkProfile profile in _profiles) {
+      if (profile.id == _selectedProfileId) {
+        return profile;
+      }
+    }
+    return null;
+  }
+
+  String? _validateProfile(CarLinkProfile profile) {
+    if (profile.name.isEmpty) {
+      return '请填写设备名称';
+    }
+    if (profile.ip.isEmpty) {
+      return '请填写设备IP';
+    }
+    return null;
+  }
+
+  void _applyProfileToForm(CarLinkProfile profile) {
+    _profileNameController.text = profile.name;
+    _assistantIpController.text = profile.ip;
+    _assistantPairPortController.text = profile.pairPort;
+    _assistantConnectPortController.text = profile.connectPort;
+    _assistantPairCodeController.text = profile.pairCode;
+    _assistantPackageController.text = profile.packageName;
+  }
+
+  Future<void> _saveProfile() async {
+    final CarLinkProfile profile = _draftProfile;
+    final String? validation = _validateProfile(profile);
+    if (validation != null) {
+      _addLog(validation);
+      return;
+    }
+
+    final int idx = _profiles.indexWhere(
+      (CarLinkProfile p) => p.id == profile.id,
+    );
+    setState(() {
+      if (idx >= 0) {
+        _profiles[idx] = profile;
+      } else {
+        _profiles.add(profile);
+      }
+      _selectedProfileId = profile.id;
+    });
+    await _persistProfiles();
+    _addLog('已保存档案: ${profile.name}');
+  }
+
+  Future<void> _newProfile() async {
+    final CarLinkProfile profile = CarLinkProfile.initial();
+    setState(() {
+      _selectedProfileId = profile.id;
+      _profiles.add(profile);
+    });
+    _applyProfileToForm(profile);
+    await _persistProfiles();
+    _addLog('已创建新档案');
+  }
+
+  Future<void> _deleteSelectedProfile() async {
+    if (_selectedProfileId == null) {
+      return;
+    }
+    if (_profiles.length == 1) {
+      _addLog('至少保留一个档案');
+      return;
+    }
+
+    setState(() {
+      _profiles.removeWhere((CarLinkProfile p) => p.id == _selectedProfileId);
+      _selectedProfileId = _profiles.first.id;
+    });
+    _applyProfileToForm(_profiles.first);
+    await _persistProfiles();
+    _addLog('已删除当前档案');
+  }
+
+  Future<void> _selectProfile(CarLinkProfile profile) async {
+    setState(() => _selectedProfileId = profile.id);
+    _applyProfileToForm(profile);
+    await _persistProfiles();
+  }
+
+  List<MapEntry<String, String>> _assistantCommands() {
+    final CarLinkProfile profile = _draftProfile;
+    if (profile.ip.isEmpty) {
+      return const <MapEntry<String, String>>[
+        MapEntry<String, String>('提示', '请先填写设备IP，再生成命令'),
+      ];
+    }
+
+    final String address = '${profile.ip}:${profile.connectPort}';
+    final List<MapEntry<String, String>> rows = <MapEntry<String, String>>[
+      MapEntry<String, String>(
+        '配对',
+        profile.pairCode.isEmpty
+            ? '请先填写 Pair Code'
+            : 'adb pair ${profile.ip}:${profile.pairPort} ${profile.pairCode}',
+      ),
+      MapEntry<String, String>('连接', 'adb connect $address'),
+      MapEntry<String, String>(
+        'HOME 键',
+        'adb -s $address shell input keyevent KEYCODE_HOME',
+      ),
+      MapEntry<String, String>(
+        '返回键',
+        'adb -s $address shell input keyevent KEYCODE_BACK',
+      ),
+      MapEntry<String, String>(
+        '任务键',
+        'adb -s $address shell input keyevent KEYCODE_APP_SWITCH',
+      ),
+      MapEntry<String, String>(
+        '启动应用',
+        'adb -s $address shell monkey -p ${profile.packageName} -c android.intent.category.LAUNCHER 1',
+      ),
+    ];
+    return rows;
+  }
+
+  Future<void> _copyCommand(String command, String label) async {
+    if (command.startsWith('请先')) {
+      _addLog(command);
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: command));
+    _addLog('已复制命令: $label');
+  }
+
+  Future<void> _copyAllCommands() async {
+    final List<String> commands = _assistantCommands()
+        .map((MapEntry<String, String> e) => e.value)
+        .where((String cmd) => !cmd.startsWith('请先'))
+        .toList();
+    if (commands.isEmpty) {
+      _addLog('没有可复制的命令');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: commands.join('\n')));
+    _addLog('已复制全部命令');
   }
 
   Future<ProcessResult> _runProcess(String executable, List<String> args) {
@@ -172,46 +493,6 @@ class _ControllerPageState extends State<ControllerPage> {
       return null;
     }
     return executable.parent.path;
-  }
-
-  Future<void> _copyCommand(String command, String label) async {
-    await Clipboard.setData(ClipboardData(text: command));
-    _addLog('Copied $label command.');
-  }
-
-  String get _assistantIp => _assistantIpController.text.trim();
-
-  String get _assistantPairPort {
-    final String port = _assistantPairPortController.text.trim();
-    return port.isEmpty ? '37099' : port;
-  }
-
-  String get _assistantConnectPort {
-    final String port = _assistantConnectPortController.text.trim();
-    return port.isEmpty ? '5555' : port;
-  }
-
-  String get _assistantPairCode => _assistantPairCodeController.text.trim();
-
-  String _assistantPairCommand() {
-    if (_assistantIp.isEmpty || _assistantPairCode.isEmpty) {
-      return 'Fill IP and Pair Code first';
-    }
-    return 'adb pair $_assistantIp:$_assistantPairPort $_assistantPairCode';
-  }
-
-  String _assistantConnectCommand() {
-    if (_assistantIp.isEmpty) {
-      return 'Fill IP first';
-    }
-    return 'adb connect $_assistantIp:$_assistantConnectPort';
-  }
-
-  String _assistantHomeCommand() {
-    if (_assistantIp.isEmpty) {
-      return 'Fill IP first';
-    }
-    return 'adb -s $_assistantIp:$_assistantConnectPort shell input keyevent KEYCODE_HOME';
   }
 
   Future<void> _refreshDevices() async {
@@ -464,12 +745,11 @@ class _ControllerPageState extends State<ControllerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isAndroidAssistant = Platform.isAndroid;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isAndroidAssistant
-              ? 'Android ADB Assistant'
+          _isAndroidAssistant
+              ? '车机互联 (ADB Assistant V1)'
               : 'Android Controller (adb + scrcpy)',
         ),
       ),
@@ -477,10 +757,12 @@ class _ControllerPageState extends State<ControllerPage> {
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: <Widget>[
-            if (isAndroidAssistant) ...<Widget>[
+            if (_isAndroidAssistant) ...<Widget>[
               _buildAndroidAssistantIntro(),
               const SizedBox(height: 12),
-              _buildAndroidAssistantForm(),
+              _buildProfileEditor(),
+              const SizedBox(height: 12),
+              _buildProfileList(),
               const SizedBox(height: 12),
               _buildAndroidAssistantCommands(),
             ] else ...<Widget>[
@@ -502,24 +784,34 @@ class _ControllerPageState extends State<ControllerPage> {
       child: const Padding(
         padding: EdgeInsets.all(12),
         child: Text(
-          'This Android build runs in ADB Assistant mode.\n'
-          'Use it to prepare wireless debugging commands.\n'
-          'Full screen control with scrcpy still requires a desktop host.',
+          '目标：在车机上管理手机互联配置，生成并复制 ADB 无线调试命令。\n'
+          '说明：完整屏幕镜像控制（scrcpy）仍建议在桌面端使用。',
         ),
       ),
     );
   }
 
-  Widget _buildAndroidAssistantForm() {
+  Widget _buildProfileEditor() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            const Text('设备档案', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _profileNameController,
+              decoration: const InputDecoration(
+                labelText: '设备名称（例如：小米15）',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
             TextField(
               controller: _assistantIpController,
               decoration: const InputDecoration(
-                labelText: 'Target Device IP (e.g. 192.168.1.88)',
+                labelText: '设备 IP（例如：192.168.1.88）',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -530,7 +822,7 @@ class _ControllerPageState extends State<ControllerPage> {
                   child: TextField(
                     controller: _assistantPairPortController,
                     decoration: const InputDecoration(
-                      labelText: 'Pair Port',
+                      labelText: 'Pair 端口',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -540,7 +832,7 @@ class _ControllerPageState extends State<ControllerPage> {
                   child: TextField(
                     controller: _assistantConnectPortController,
                     decoration: const InputDecoration(
-                      labelText: 'Connect Port',
+                      labelText: 'Connect 端口',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -555,6 +847,77 @@ class _ControllerPageState extends State<ControllerPage> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _assistantPackageController,
+              decoration: const InputDecoration(
+                labelText: '默认启动包名（可选）',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                FilledButton(
+                  onPressed: _saveProfile,
+                  child: const Text('保存档案'),
+                ),
+                OutlinedButton(
+                  onPressed: _newProfile,
+                  child: const Text('新建档案'),
+                ),
+                OutlinedButton(
+                  onPressed: _deleteSelectedProfile,
+                  child: const Text('删除当前档案'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileList() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('档案列表', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            if (!_profilesReady)
+              const SizedBox(
+                height: 80,
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else
+              SizedBox(
+                height: 180,
+                child: ListView.builder(
+                  itemCount: _profiles.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final CarLinkProfile profile = _profiles[index];
+                    return ListTile(
+                      dense: true,
+                      selected: profile.id == _selectedProfileId,
+                      title: Text(profile.name),
+                      subtitle: Text(
+                        profile.ip.isEmpty
+                            ? '未填写IP'
+                            : '${profile.ip}:${profile.connectPort}',
+                      ),
+                      trailing: profile.id == _selectedProfileId
+                          ? const Icon(Icons.check_circle)
+                          : const Icon(Icons.circle_outlined),
+                      onTap: () => _selectProfile(profile),
+                    );
+                  },
+                ),
+              ),
           ],
         ),
       ),
@@ -562,25 +925,34 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Widget _buildAndroidAssistantCommands() {
-    final String pairCommand = _assistantPairCommand();
-    final String connectCommand = _assistantConnectCommand();
-    final String homeCommand = _assistantHomeCommand();
+    final List<MapEntry<String, String>> commands = _assistantCommands();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Text(
-              'Generated Commands',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text(
+                    '快捷命令',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                FilledButton(
+                  onPressed: _copyAllCommands,
+                  child: const Text('复制全部'),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
-            _buildCommandRow('Pair', pairCommand),
-            const SizedBox(height: 8),
-            _buildCommandRow('Connect', connectCommand),
-            const SizedBox(height: 8),
-            _buildCommandRow('Send HOME', homeCommand),
+            ...commands.map(
+              (MapEntry<String, String> row) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildCommandRow(row.key, row.value),
+              ),
+            ),
           ],
         ),
       ),
@@ -588,22 +960,30 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Widget _buildCommandRow(String label, String command) {
-    final bool isValid = !command.startsWith('Fill ');
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        SelectableText(
-          command,
-          style: const TextStyle(fontFamily: 'monospace'),
-        ),
-        const SizedBox(height: 4),
-        FilledButton(
-          onPressed: isValid ? () => _copyCommand(command, label) : null,
-          child: Text('Copy $label Command'),
-        ),
-      ],
+    final bool copyable = !command.startsWith('请先');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFD8D8D8)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          SelectableText(
+            command,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          FilledButton.tonal(
+            onPressed: copyable ? () => _copyCommand(command, label) : null,
+            child: Text('复制 $label'),
+          ),
+        ],
+      ),
     );
   }
 
