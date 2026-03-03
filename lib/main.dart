@@ -74,6 +74,7 @@ class _ControllerPageState extends State<ControllerPage> {
   @override
   void initState() {
     super.initState();
+    _initializeToolPaths();
     if (widget.autoRefresh) {
       unawaited(_refreshDevices());
     }
@@ -110,6 +111,63 @@ class _ControllerPageState extends State<ControllerPage> {
       stdoutEncoding: utf8,
       stderrEncoding: utf8,
     );
+  }
+
+  void _initializeToolPaths() {
+    _adbPath = _defaultAdbPath();
+    _scrcpyPath = _defaultScrcpyPath();
+    _adbPathController.text = _adbPath;
+    _scrcpyPathController.text = _scrcpyPath;
+  }
+
+  String _defaultAdbPath() {
+    return _findToolBinary(<String>[
+          Platform.isWindows ? 'adb.exe' : 'adb',
+          'platform-tools/${Platform.isWindows ? 'adb.exe' : 'adb'}',
+        ]) ??
+        'adb';
+  }
+
+  String _defaultScrcpyPath() {
+    return _findToolBinary(<String>[
+          Platform.isWindows ? 'scrcpy.exe' : 'scrcpy',
+          'scrcpy/${Platform.isWindows ? 'scrcpy.exe' : 'scrcpy'}',
+        ]) ??
+        'scrcpy';
+  }
+
+  String? _findToolBinary(List<String> relativeCandidates) {
+    for (final String toolsRoot in _toolRootDirectories()) {
+      for (final String relativePath in relativeCandidates) {
+        final File candidate = File('$toolsRoot/$relativePath');
+        if (candidate.existsSync()) {
+          return candidate.path;
+        }
+      }
+    }
+    return null;
+  }
+
+  List<String> _toolRootDirectories() {
+    final String executableDir = File(Platform.resolvedExecutable).parent.path;
+    final List<String> candidates = <String>[
+      '$executableDir/tools',
+      '${Directory.current.path}/tools',
+    ];
+    if (Platform.isMacOS) {
+      final String resourcesDir =
+          '${Directory(executableDir).parent.path}/Resources';
+      candidates.insert(0, '$resourcesDir/tools');
+    }
+    return candidates.toSet().toList();
+  }
+
+  String? _workingDirectoryForExecutable(String executablePath) {
+    final File executable = File(executablePath);
+    if (!executable.existsSync()) {
+      return null;
+    }
+    return executable.parent.path;
   }
 
   Future<void> _refreshDevices() async {
@@ -175,12 +233,14 @@ class _ControllerPageState extends State<ControllerPage> {
   }
 
   Future<void> _saveToolPaths() async {
+    final String defaultAdbPath = _defaultAdbPath();
+    final String defaultScrcpyPath = _defaultScrcpyPath();
     setState(() {
       _adbPath = _adbPathController.text.trim().isEmpty
-          ? 'adb'
+          ? defaultAdbPath
           : _adbPathController.text.trim();
       _scrcpyPath = _scrcpyPathController.text.trim().isEmpty
-          ? 'scrcpy'
+          ? defaultScrcpyPath
           : _scrcpyPathController.text.trim();
     });
     _addLog('Tool paths updated. adb=$_adbPath, scrcpy=$_scrcpyPath');
@@ -247,11 +307,13 @@ class _ControllerPageState extends State<ControllerPage> {
     }
 
     try {
-      final Process process = await Process.start(_scrcpyPath, <String>[
-        '-s',
-        _selectedSerial!,
-        '--stay-awake',
-      ], runInShell: true);
+      final Process process = await Process.start(
+        _scrcpyPath,
+        <String>['-s', _selectedSerial!, '--stay-awake'],
+        runInShell: true,
+        workingDirectory: _workingDirectoryForExecutable(_scrcpyPath),
+        environment: <String, String>{'ADB': _adbPath},
+      );
 
       _scrcpyProcess = process;
       _scrcpyStdoutSub = process.stdout

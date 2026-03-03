@@ -26,6 +26,14 @@ flutter run -d macos
 
 如果 `adb` 或 `scrcpy` 不在系统 PATH，可在界面顶部填入可执行文件绝对路径。
 
+## 内置工具打包
+
+- 通过 GitHub Actions 生成的桌面构建产物会自动下载并打包：
+  - Android platform-tools（包含 `adb`）
+  - 官方 `scrcpy` release 二进制
+- 应用启动时会优先查找并使用产物内 `tools/` 目录下的工具；若不存在则回退到系统 PATH。
+- 本地 `flutter run` 默认仍使用系统安装的 `adb/scrcpy`，也可以手动创建项目根目录 `tools/` 覆盖默认路径。
+
 ## Android 设备准备
 
 1. 打开手机开发者选项并启用 USB 调试。
@@ -44,6 +52,6 @@ adb connect <手机IP>:5555
 仓库包含两个 workflow：
 
 - `ci.yml`：`flutter analyze` + `flutter test`
-- `desktop_build.yml`：在 Linux/Windows/macOS 构建桌面应用并上传 artifact
+- `desktop_build.yml`：在 Linux/Windows/macOS 构建桌面应用，打包 `adb/scrcpy` 并上传 artifact
 
 注意：GitHub Actions 只能做构建与测试，不能直接连接你的实体 Android 手机执行远程控制。
