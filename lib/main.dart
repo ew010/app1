@@ -49,12 +49,6 @@ class ControllerPage extends StatefulWidget {
 }
 
 class _ControllerPageState extends State<ControllerPage> {
-  final TextEditingController _adbPathController = TextEditingController(
-    text: 'adb',
-  );
-  final TextEditingController _scrcpyPathController = TextEditingController(
-    text: 'scrcpy',
-  );
   final TextEditingController _connectAddressController =
       TextEditingController();
   final TextEditingController _textInputController = TextEditingController();
@@ -88,8 +82,6 @@ class _ControllerPageState extends State<ControllerPage> {
     _scrcpyStderrSub?.cancel();
     _scrcpyProcess?.kill(ProcessSignal.sigterm);
 
-    _adbPathController.dispose();
-    _scrcpyPathController.dispose();
     _connectAddressController.dispose();
     _textInputController.dispose();
     super.dispose();
@@ -118,8 +110,6 @@ class _ControllerPageState extends State<ControllerPage> {
   void _initializeToolPaths() {
     _adbPath = _defaultAdbPath();
     _scrcpyPath = _defaultScrcpyPath();
-    _adbPathController.text = _adbPath;
-    _scrcpyPathController.text = _scrcpyPath;
   }
 
   String _defaultAdbPath() {
@@ -235,21 +225,6 @@ class _ControllerPageState extends State<ControllerPage> {
     }
 
     return devices;
-  }
-
-  Future<void> _saveToolPaths() async {
-    final String defaultAdbPath = _defaultAdbPath();
-    final String defaultScrcpyPath = _defaultScrcpyPath();
-    setState(() {
-      _adbPath = _adbPathController.text.trim().isEmpty
-          ? defaultAdbPath
-          : _adbPathController.text.trim();
-      _scrcpyPath = _scrcpyPathController.text.trim().isEmpty
-          ? defaultScrcpyPath
-          : _scrcpyPathController.text.trim();
-    });
-    _addLog('Tool paths updated. adb=$_adbPath, scrcpy=$_scrcpyPath');
-    await _refreshDevices();
   }
 
   Future<void> _connectOverTcp() async {
@@ -445,53 +420,11 @@ class _ControllerPageState extends State<ControllerPage> {
           children: <Widget>[
             if (!_supportsHostControl) _buildPlatformWarning(),
             if (!_supportsHostControl) const SizedBox(height: 12),
-            _buildToolSection(),
-            const SizedBox(height: 12),
             _buildDeviceSection(),
             const SizedBox(height: 12),
             _buildActionSection(),
             const SizedBox(height: 12),
             _buildLogsSection(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildToolSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextField(
-                    controller: _adbPathController,
-                    decoration: const InputDecoration(
-                      labelText: 'adb path',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: _scrcpyPathController,
-                    decoration: const InputDecoration(
-                      labelText: 'scrcpy path',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _busy ? null : _saveToolPaths,
-                  child: const Text('Save'),
-                ),
-              ],
-            ),
           ],
         ),
       ),

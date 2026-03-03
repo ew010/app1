@@ -24,7 +24,7 @@ flutter pub get
 flutter run -d macos
 ```
 
-如果 `adb` 或 `scrcpy` 不在系统 PATH，可在界面顶部填入可执行文件绝对路径。
+应用会自动查找内置 `tools/` 目录中的 `adb/scrcpy`；找不到时回退系统 PATH，不需要用户手动配置路径。
 
 ## 内置工具打包
 
